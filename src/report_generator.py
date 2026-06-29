@@ -1,644 +1,419 @@
 """
-Compiles a premium, interactive SaaS-style dark-themed HTML dashboard
-with tabbed navigation, KPI cards, PM Accelerator mission, image lightbox,
-and all generated analysis plots embedded as base64.
+Premium SaaS-style interactive HTML dashboard generator.
+Dark glassmorphism design with animated gradient background, tabbed navigation,
+lightbox image zoom, KPI cards, and PM Accelerator mission statement.
 """
 from pathlib import Path
-import base64
-import datetime
+import base64, datetime
 
-# ─────────────────────────────────────────────────────────────────
-# Plot catalog: prefix → (title, description)
-# ─────────────────────────────────────────────────────────────────
-PLOT_META = {
-    "01": ("Global Temperature Trend",
-           "Continuous temperature readings sampled across all global monitoring stations over time."),
-    "02": ("Meteorological Correlation Matrix",
-           "Pearson correlation heatmap between core weather variables — temperature, humidity, wind, pressure, UV, visibility."),
-    "03": ("Temperature vs Humidity",
-           "Scatter distribution revealing the combined thermal-humidity envelope across all global cities."),
-    "04": ("Wind Speed Distribution",
-           "Box-and-whisker plot summarising median, IQR, and outlier wind speeds across the full dataset."),
-    "05": ("Precipitation Distribution & Categories",
-           "Histogram of non-zero rainfall (log scale) and intensity category breakdown: None / Light / Moderate / Heavy."),
-    "06": ("Monthly Average Precipitation",
-           "Global average precipitation (mm) aggregated by calendar month to identify seasonal wet/dry cycles."),
-    "07": ("Top 15 Rainiest Cities",
-           "Horizontal bar chart of the 15 cities with the highest average daily precipitation across the observation period."),
-    "08": ("Isolation Forest Anomaly Detection",
-           "Anomalous climate events (red ×) flagged at 2% contamination threshold against normal readings (grey dots)."),
-    "09": ("ARIMA(5,1,2) Daily Forecast",
-           "Classical time-series ARIMA forecast of daily average temperature vs actual future values."),
-    "10": ("ML Regressor Predictions vs Actual",
-           "First 150 test-set predictions compared for Ridge baseline, Ensemble model, and true temperature values."),
-    "11": ("Ensemble Model Residuals",
-           "Distribution of prediction errors for the weighted ensemble model — should be centred on zero for an unbiased model."),
-    "14": ("Country-Level Temperature Extremes",
-           "Boxplot of temperature distributions across the 8 hottest and 8 coldest countries by average temperature."),
-    "15": ("Continent-Level Temperature Distribution",
-           "Boxplot comparing temperature spread across all 6 continents — reveals clear latitudinal climate zones."),
-    "15b": ("Continent-Level Precipitation",
-            "Average daily precipitation (mm) per continent — highlights tropical vs arid regional differences."),
-    "16": ("Top 15 Weather Conditions (Global Frequency)",
-           "Bar chart of the 15 most frequently recorded weather condition descriptions worldwide."),
-    "16b": ("Average Temperature by Weather Condition",
-            "Mean temperature for each of the top 10 weather conditions, showing thermal differences between condition types."),
-    "17": ("AQI × Meteorological Correlation Matrix",
-           "Lower-triangle heatmap of Air Quality Index pollutants correlated with temperature, wind, humidity, and visibility."),
-    "17b": ("US-EPA Air Quality Index Distribution",
-            "Frequency of each EPA AQI category from Good to Hazardous across all global cities."),
-    "20": ("Random Forest Feature Importance",
-           "Ranked predictive importance scores for each input feature computed by the Random Forest regressor."),
-    "25": ("N vs S Hemisphere Seasonal Cycles",
-           "Opposite seasonal temperature waves of the Northern and Southern Hemispheres confirming inverse climate cycles."),
+# ── Plot metadata ─────────────────────────────────────────────────
+PLOTS = {
+    "01": ("🌡️", "Temperature Trend", "Global temperature over time across all sampled monitoring stations."),
+    "02": ("🔗", "Correlation Matrix", "Pearson heatmap of core meteorological features — temp, humidity, wind, pressure, UV."),
+    "03": ("💧", "Temp vs Humidity", "Scatter plot revealing the thermal-humidity envelope across global cities."),
+    "04": ("🌬️", "Wind Speed Distribution", "Box-whisker of wind speeds summarising median, IQR and outlier range."),
+    "05": ("🌧️", "Precipitation Distribution", "Non-zero rainfall histogram (log-scale) and intensity category breakdown."),
+    "06": ("📅", "Monthly Precipitation", "Average precipitation by calendar month showing seasonal wet/dry cycles."),
+    "07": ("🏙️", "Rainiest Cities", "Top 15 cities ranked by average daily precipitation volume."),
+    "08": ("🚨", "Anomaly Detection", "Isolation Forest anomalies (2% contamination) — red × marks flagged outliers."),
+    "09": ("📈", "ARIMA Forecast", "Classical ARIMA(5,1,2) daily temperature forecast vs actual future values."),
+    "10": ("🤖", "Model Comparison", "Ridge, Ensemble and actual temperature on 150-record test window."),
+    "11": ("📊", "Ensemble Residuals", "Prediction error distribution for the weighted ensemble model."),
+    "14": ("🌍", "Country Extremes", "Temperature spread across the 8 hottest and 8 coldest countries."),
+    "15": ("🗺️", "Continent Temperature", "Temperature boxplot by continent — reveals latitudinal climate zones."),
+    "15b": ("🌦️", "Continent Precipitation", "Average daily precipitation per continent — tropical vs arid differences."),
+    "16": ("☁️", "Weather Conditions", "Top 15 most frequent weather condition types worldwide."),
+    "16b": ("🌤️", "Condition vs Temp", "Mean temperature for each of the top 10 weather condition types."),
+    "17": ("💨", "AQI Correlation", "Air quality pollutants correlated with temp, wind, humidity and visibility."),
+    "17b": ("📉", "EPA AQI Distribution", "US-EPA AQI category frequency from Good to Hazardous across all cities."),
+    "20": ("🧬", "Feature Importance", "Random Forest predictor ranking — humidity and THI dominate."),
+    "25": ("🌐", "Hemisphere Cycles", "Opposite seasonal temperature waves of Northern vs Southern Hemispheres."),
 }
 
-# Tab structure: (label, [plot_prefix_list])
 TABS = [
-    ("📊 Overview",              ["01", "10", "11"]),
-    ("🌧️ Precipitation",         ["05", "06", "07"]),
-    ("🔍 EDA & Correlations",    ["02", "03", "04"]),
-    ("🚨 Anomaly Detection",     ["08"]),
-    ("🤖 Forecasting Models",    ["09"]),
-    ("🌍 Climate & Extremes",    ["14", "25"]),
-    ("🗺️ Geographical Patterns", ["15", "15b", "16", "16b"]),
-    ("💨 Air Quality (AQI)",     ["17", "17b"]),
-    ("🧬 Feature Importance",    ["20"]),
-    ("📍 Spatial Map",           []),   # Folium iframe, handled separately
+    ("📊", "Overview",            ["01","10","11"]),
+    ("🌧️", "Precipitation",      ["05","06","07"]),
+    ("🔍", "EDA",                 ["02","03","04"]),
+    ("🚨", "Anomalies",          ["08"]),
+    ("🤖", "Forecasting",        ["09"]),
+    ("🌍", "Climate",            ["14","25"]),
+    ("🗺️", "Geography",         ["15","15b","16","16b"]),
+    ("💨", "Air Quality",        ["17","17b"]),
+    ("🧬", "Features",           ["20"]),
+    ("📍", "Spatial Map",        []),
 ]
 
-# PM Accelerator Real Mission Statement (from pmaccelerator.io)
-PM_ACCELERATOR_MISSION = """
-PM Accelerator is on a mission to <strong>break down financial barriers and achieve
-educational fairness</strong> — empowering individuals for better life and career outcomes
-while fostering a more diverse and inclusive landscape in the tech industry.
-Driven by founder <strong>Dr. Nancy Li</strong>, PM Accelerator's long-term vision is to
-establish <strong>200 schools worldwide over the next 20 years</strong>, providing
-world-class product management and entrepreneurship education to families who
-otherwise could not afford it. The program offers the most accessible, community-driven,
-and outcome-focused product management education available today — helping aspiring and
-experienced PMs gain the skills, network, and confidence to land their dream PM roles
-and excel throughout their careers.
+PM_MISSION = (
+    "PM Accelerator is on a mission to <strong>break down financial barriers and achieve "
+    "educational fairness</strong>, empowering individuals for better life and career outcomes "
+    "while fostering a more diverse and inclusive landscape in the tech industry. "
+    "Driven by founder <strong>Dr. Nancy Li</strong>, the long-term vision is to establish "
+    "<strong>200 schools worldwide over the next 20 years</strong>, providing world-class "
+    "product management education to families who otherwise could not afford it."
+)
+
+CSS = """
+:root{
+  --bg:#070c18;--sidebar:#0a1020;--card:rgba(15,23,42,.65);
+  --border:rgba(255,255,255,.07);--accent:#06b6d4;--accent2:#8b5cf6;
+  --success:#10b981;--warn:#f59e0b;--danger:#f87171;--muted:#64748b;
+  --text:#f1f5f9;--font:'Inter',sans-serif;--display:'Outfit',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);color:var(--text);font-family:var(--font);
+  display:flex;min-height:100vh;overflow-x:hidden;
+}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(ellipse 70% 50% at 10% 0%,rgba(6,182,212,.07),transparent),
+    radial-gradient(ellipse 60% 70% at 90% 100%,rgba(139,92,246,.07),transparent),
+    radial-gradient(ellipse 40% 40% at 50% 50%,rgba(16,185,129,.03),transparent);
+}
+
+/* SIDEBAR */
+aside{
+  width:240px;min-height:100vh;background:var(--sidebar);
+  border-right:1px solid var(--border);padding:1.75rem 1rem;
+  position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:30;
+  display:flex;flex-direction:column;
+}
+.logo{margin-bottom:2rem;padding:.75rem 1rem;
+  background:linear-gradient(135deg,rgba(6,182,212,.1),rgba(139,92,246,.1));
+  border:1px solid rgba(6,182,212,.15);border-radius:12px;}
+.logo-title{font-family:var(--display);font-weight:800;font-size:1.25rem;
+  background:linear-gradient(135deg,#06b6d4,#8b5cf6);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-.5px;}
+.logo-sub{font-size:.7rem;color:var(--muted);margin-top:.2rem;letter-spacing:.3px;}
+.nav-section{font-size:.65rem;font-weight:700;text-transform:uppercase;
+  letter-spacing:1.2px;color:var(--muted);padding:.5rem .75rem;margin-top:.5rem;}
+.nav-item{
+  display:flex;align-items:center;gap:.6rem;padding:.65rem .85rem;
+  border-radius:10px;cursor:pointer;color:var(--muted);font-size:.83rem;
+  font-weight:500;transition:all .2s;user-select:none;margin-bottom:2px;
+}
+.nav-item:hover{background:rgba(6,182,212,.08);color:var(--text);}
+.nav-item.active{
+  background:linear-gradient(135deg,rgba(6,182,212,.15),rgba(139,92,246,.1));
+  color:var(--accent);border-left:3px solid var(--accent);font-weight:600;
+}
+.nav-icon{font-size:1rem;width:20px;text-align:center;}
+
+/* MAIN */
+main{margin-left:240px;flex:1;padding:2rem 2.5rem;position:relative;z-index:1;max-width:1400px;}
+
+/* HEADER */
+.page-header{
+  display:flex;justify-content:space-between;align-items:flex-start;
+  margin-bottom:1.75rem;padding-bottom:1.5rem;
+  border-bottom:1px solid var(--border);
+}
+.page-title{font-family:var(--display);font-weight:800;font-size:1.9rem;
+  letter-spacing:-1px;
+  background:linear-gradient(to right,#f8fafc 40%,#94a3b8);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.page-sub{color:var(--muted);margin-top:.3rem;font-size:.85rem;}
+.date-badge{
+  font-size:.75rem;color:var(--muted);white-space:nowrap;
+  background:rgba(15,23,42,.8);border:1px solid var(--border);
+  padding:.35rem .85rem;border-radius:20px;margin-top:.25rem;
+}
+
+/* KPI GRID */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:1rem;margin-bottom:1.75rem;}
+.kpi{
+  background:var(--card);backdrop-filter:blur(20px);
+  border:1px solid var(--border);border-radius:14px;
+  padding:1.25rem 1.35rem;position:relative;overflow:hidden;
+  transition:transform .25s,box-shadow .25s;
+}
+.kpi:hover{transform:translateY(-3px);box-shadow:0 12px 32px -8px rgba(6,182,212,.15);border-color:rgba(6,182,212,.2);}
+.kpi::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--c1,#06b6d4),var(--c2,#8b5cf6));
+}
+.kpi-icon{font-size:1.4rem;margin-bottom:.5rem;}
+.kpi-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;}
+.kpi-value{font-family:var(--display);font-size:1.6rem;font-weight:700;margin-top:.25rem;color:var(--text);}
+
+/* MISSION */
+.mission{
+  background:linear-gradient(135deg,rgba(6,182,212,.07),rgba(139,92,246,.07));
+  border:1px solid rgba(6,182,212,.18);border-radius:16px;
+  padding:1.75rem 2rem;margin-bottom:1.75rem;position:relative;overflow:hidden;
+}
+.mission::after{
+  content:'"';position:absolute;right:1.5rem;top:-.5rem;font-size:8rem;
+  font-family:Georgia,serif;color:rgba(6,182,212,.06);line-height:1;pointer-events:none;
+}
+.mission-badge{
+  display:inline-flex;align-items:center;gap:.4rem;
+  font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;
+  color:var(--accent);background:rgba(6,182,212,.1);
+  border:1px solid rgba(6,182,212,.2);border-radius:20px;
+  padding:.25rem .75rem;margin-bottom:.85rem;
+}
+.mission-title{font-family:var(--display);font-weight:700;font-size:1.1rem;margin-bottom:.6rem;}
+.mission-text{color:#cbd5e1;font-size:.88rem;line-height:1.75;}
+
+/* TABS */
+.tab{display:none;animation:fadeUp .3s ease both;}
+.tab.active{display:block;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+/* METRICS TABLE */
+.table-card{
+  background:var(--card);backdrop-filter:blur(20px);
+  border:1px solid var(--border);border-radius:16px;
+  padding:1.5rem;margin-bottom:1.5rem;overflow-x:auto;
+}
+.card-title{
+  font-family:var(--display);font-weight:700;font-size:1.05rem;
+  border-left:3px solid var(--accent);padding-left:.75rem;margin-bottom:1.25rem;
+}
+table{width:100%;border-collapse:collapse;}
+th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.6px;
+  padding:.7rem 1rem;border-bottom:1px solid var(--border);text-align:left;font-weight:600;}
+td{padding:.85rem 1rem;border-bottom:1px solid rgba(255,255,255,.03);font-size:.87rem;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(255,255,255,.02);}
+.best-row{background:linear-gradient(90deg,rgba(16,185,129,.07),rgba(16,185,129,.02));}
+.best-badge{
+  background:var(--success);color:#000;font-size:.62rem;font-weight:700;
+  padding:.12rem .4rem;border-radius:4px;margin-left:.4rem;vertical-align:middle;
+}
+
+/* PLOT GRID */
+.plot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:1.5rem;margin-top:1.25rem;}
+.plot-card{
+  background:var(--card);backdrop-filter:blur(20px);
+  border:1px solid var(--border);border-radius:16px;
+  padding:1.35rem;display:flex;flex-direction:column;gap:.75rem;
+  transition:border-color .25s,transform .25s;
+}
+.plot-card:hover{border-color:rgba(6,182,212,.25);transform:translateY(-2px);}
+.plot-title{
+  font-family:var(--display);font-weight:600;font-size:.95rem;
+  display:flex;align-items:center;gap:.5rem;
+}
+.plot-title-icon{
+  width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-size:.85rem;
+  background:linear-gradient(135deg,rgba(6,182,212,.15),rgba(139,92,246,.15));
+  border:1px solid rgba(6,182,212,.1);flex-shrink:0;
+}
+.plot-desc{color:var(--muted);font-size:.78rem;line-height:1.5;}
+.img-wrap{
+  border-radius:10px;overflow:hidden;border:1px solid var(--border);
+  cursor:zoom-in;position:relative;background:#060c18;
+  transition:border-color .25s;
+}
+.img-wrap:hover{border-color:var(--accent);}
+.img-wrap img{width:100%;display:block;transition:transform .35s;}
+.img-wrap:hover img{transform:scale(1.02);}
+.zoom-label{
+  position:absolute;bottom:8px;right:10px;font-size:.68rem;color:var(--muted);
+  background:rgba(7,12,24,.8);padding:.15rem .45rem;border-radius:5px;
+  opacity:0;transition:opacity .2s;
+}
+.img-wrap:hover .zoom-label{opacity:1;}
+
+/* MAP */
+.map-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;margin-top:1.25rem;}
+.map-frame{width:100%;height:540px;border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-top:1rem;}
+.map-frame iframe{width:100%;height:100%;border:none;}
+
+/* MODAL */
+.overlay{
+  display:none;position:fixed;inset:0;z-index:999;
+  background:rgba(7,12,24,.95);backdrop-filter:blur(8px);
+  align-items:center;justify-content:center;padding:2rem;
+}
+.overlay.open{display:flex;}
+.overlay img{
+  max-width:90vw;max-height:88vh;border-radius:12px;
+  border:1px solid var(--border);box-shadow:0 30px 80px -10px rgba(0,0,0,.7);
+  animation:zoomIn .25s ease;
+}
+@keyframes zoomIn{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+.close-btn{
+  position:absolute;top:1.25rem;right:1.5rem;font-size:2rem;
+  color:var(--muted);cursor:pointer;transition:color .2s;line-height:1;
+  background:none;border:none;
+}
+.close-btn:hover{color:var(--text);}
 """
 
+JS = """
+function switchTab(id,el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  var t=document.getElementById(id);if(t)t.classList.add('active');
+  if(el)el.classList.add('active');
+}
+function openModal(src){
+  document.getElementById('mi').src=src;
+  document.getElementById('ov').classList.add('open');
+}
+function closeModal(){document.getElementById('ov').classList.remove('open');}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal();});
+"""
 
-def _img_b64(path: Path) -> str:
-    """Return base64-encoded data URI for a PNG file."""
-    try:
-        data = path.read_bytes()
-        return f"data:image/png;base64,{base64.b64encode(data).decode()}"
-    except Exception:
-        return ""
+def _b64(path):
+    try: return "data:image/png;base64,"+base64.b64encode(Path(path).read_bytes()).decode()
+    except: return ""
 
+def _find_plot(plots_path, key):
+    for p in sorted(plots_path.glob(f"{key}_*.png")):
+        return p
+    for p in sorted(plots_path.glob(f"{key}.png")):
+        return p
+    return None
 
 def generate_html_report(df, metrics_report, plots_dir, reports_dir):
-    """Compile the full interactive HTML dashboard."""
     print("Compiling interactive HTML dashboard...")
-    plots_path = Path(plots_dir)
-    reports_path = Path(reports_dir)
-    reports_path.mkdir(parents=True, exist_ok=True)
+    pp = Path(plots_dir); rp = Path(reports_dir)
+    rp.mkdir(parents=True, exist_ok=True)
 
-    # ── KPI values ──────────────────────────────
-    total_records  = len(df)
-    unique_cities  = df['location_name'].nunique() if 'location_name' in df.columns else 0
-    unique_countries = df['country'].nunique() if 'country' in df.columns else 0
-    anomaly_count  = int(df['is_anomaly'].sum()) if 'is_anomaly' in df.columns else 0
-    anomaly_pct    = round(anomaly_count / total_records * 100, 2) if total_records else 0
+    total   = len(df)
+    cities  = df['location_name'].nunique() if 'location_name' in df.columns else 0
+    ctries  = df['country'].nunique() if 'country' in df.columns else 0
+    anom    = int(df['is_anomaly'].sum()) if 'is_anomaly' in df.columns else 0
+    apct    = round(anom/total*100,2)
+    avg_t   = round(df['temperature_celsius'].mean(),1) if 'temperature_celsius' in df.columns else 0
+    best    = min({k:v for k,v in metrics_report.items() if k!='ARIMA'},
+                  key=lambda k:metrics_report[k].get('MAE',9999))
+    today   = datetime.date.today().strftime('%b %d, %Y')
 
-    best_model = min(
-        {k: v for k, v in metrics_report.items() if k != 'ARIMA'},
-        key=lambda k: metrics_report[k].get('MAE', 9999)
+    kpi_data = [
+        ("🌡️","Global Avg Temp",f"{avg_t}°C","--c1:#06b6d4;--c2:#0ea5e9"),
+        ("📍","Cities Monitored",f"{cities:,}","--c1:#8b5cf6;--c2:#a78bfa"),
+        ("🌍","Countries",f"{ctries}","--c1:#10b981;--c2:#34d399"),
+        ("🚨","Anomalies",f"{anom:,} ({apct}%)","--c1:#f59e0b;--c2:#fbbf24"),
+        ("🏆","Best Model",best,"--c1:#10b981;--c2:#06b6d4"),
+        ("📊","Total Records",f"{total:,}","--c1:#8b5cf6;--c2:#ec4899"),
+    ]
+
+    kpis_html = "".join(
+        f'<div class="kpi" style="{st}"><div class="kpi-icon">{ic}</div>'
+        f'<div class="kpi-label">{lb}</div><div class="kpi-value">{vl}</div></div>'
+        for ic,lb,vl,st in kpi_data
     )
-    best_mae = metrics_report[best_model]['MAE']
 
-    avg_temp = round(df['temperature_celsius'].mean(), 1) if 'temperature_celsius' in df.columns else 0
+    # Metrics table
+    rows = ""
+    for mn,m in sorted(metrics_report.items(),key=lambda x:x[1].get('MAE',9999)):
+        ib = mn==best
+        badge = '<span class="best-badge">★ BEST</span>' if ib else ""
+        rc = 'class="best-row"' if ib else ""
+        rows += (f'<tr {rc}><td><strong>{mn}</strong>{badge}</td>'
+                 f'<td>{m.get("MAE",0):.4f}</td><td>{m.get("RMSE",0):.4f}</td>'
+                 f'<td>{m.get("R2",0):.4f}</td><td>{m.get("MAPE",0):.2f}%</td></tr>')
 
-    today = datetime.date.today().strftime('%B %d, %Y')
+    metrics_html = f"""
+<div class="table-card">
+  <div class="card-title">Model Evaluation Metrics</div>
+  <table>
+    <thead><tr><th>Model</th><th>MAE (°C)</th><th>RMSE (°C)</th><th>R² Score</th><th>MAPE</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>"""
 
-    # ── Pre-render tab buttons & content ────────
-    tab_buttons = ""
-    tab_contents = ""
+    # Build tabs
+    nav_items = ""
+    tab_divs  = ""
+    for i,(icon,label,keys) in enumerate(TABS):
+        tid = f"t{i}"
+        nav_items += (f'<div class="nav-item{" active" if i==0 else ""}" '
+                      f'onclick="switchTab(\'{tid}\',this)">'
+                      f'<span class="nav-icon">{icon}</span>{label}</div>\n')
 
-    for tab_idx, (label, plot_keys) in enumerate(TABS):
-        tab_id = f"tab{tab_idx}"
-        active_btn = "active" if tab_idx == 0 else ""
-        active_div = "active" if tab_idx == 0 else ""
-
-        tab_buttons += f'<li class="nav-item {active_btn}" onclick="switchTab(\'{tab_id}\', this)">{label}</li>\n'
-
-        # Spatial Map tab — iframe only
-        if label == "📍 Spatial Map":
-            tab_contents += f"""
-<div id="{tab_id}" class="tab-content {active_div}">
-  <div class="section-card">
-    <div class="section-title">📍 Global Temperature Spatial Heatmap</div>
-    <p class="section-desc">
-      Interactive Folium map showing global temperature intensity and city-level markers.
-      Click any marker for city name, average temperature, and average precipitation.
+        if label=="Spatial Map":
+            tab_divs += f"""
+<div id="{tid}" class="tab">
+  <div class="map-card">
+    <div class="card-title">📍 Global Temperature Spatial Heatmap</div>
+    <p style="color:var(--muted);font-size:.83rem;margin-top:.3rem">
+      Interactive Folium heatmap. Click any city marker for temperature and precipitation details.
     </p>
-    <div class="map-wrapper">
-      <iframe src="interactive_map.html" title="Global Temperature Heatmap"></iframe>
-    </div>
+    <div class="map-frame"><iframe src="interactive_map.html" title="Global Heatmap"></iframe></div>
   </div>
 </div>"""
             continue
 
-        # Overview tab — metrics table first
-        metrics_table = ""
-        if tab_idx == 0:
-            rows = ""
-            for model_name, m in sorted(metrics_report.items(), key=lambda x: x[1].get('MAE', 9999)):
-                is_best = (model_name == best_model)
-                badge = '<span class="best-badge">★ BEST</span>' if is_best else ""
-                row_cls = 'class="best-row"' if is_best else ""
-                rows += f"""<tr {row_cls}>
-  <td><strong>{model_name}</strong>{badge}</td>
-  <td>{m.get('MAE',0):.4f}</td>
-  <td>{m.get('RMSE',0):.4f}</td>
-  <td>{m.get('R2',0):.4f}</td>
-  <td>{m.get('MAPE',0):.2f}%</td>
-</tr>"""
-            metrics_table = f"""
-<div class="metrics-card">
-  <div class="section-title" style="margin-bottom:1.25rem;">📈 Forecasting Model Evaluation</div>
-  <div class="table-wrapper">
-    <table>
-      <thead><tr>
-        <th>Model</th><th>MAE (°C)</th><th>RMSE (°C)</th><th>R² Score</th><th>MAPE (%)</th>
-      </tr></thead>
-      <tbody>{rows}</tbody>
-    </table>
-  </div>
-</div>"""
-
-        # Plot grid
-        plot_cards = ""
-        for key in plot_keys:
-            matching = sorted(plots_path.glob(f"{key}_*.png")) + sorted(plots_path.glob(f"{key}.png"))
-            # Also try prefix match
-            if not matching:
-                matching = [p for p in plots_path.glob("*.png") if p.stem.startswith(key + "_") or p.stem == key]
-            if matching:
-                img_path = matching[0]
-                b64 = _img_b64(img_path)
-                title, desc = PLOT_META.get(key, (img_path.stem.replace("_", " ").title(), ""))
-                plot_cards += f"""
+        cards = ""
+        for key in keys:
+            path = _find_plot(pp, key)
+            if path:
+                b64  = _b64(path)
+                ico,ttl,desc = PLOTS.get(key,("📊",path.stem,""))
+                cards += f"""
 <div class="plot-card">
-  <div class="plot-title">{title}</div>
+  <div class="plot-title">
+    <div class="plot-title-icon">{ico}</div>{ttl}
+  </div>
   <p class="plot-desc">{desc}</p>
-  <div class="img-box" onclick="openModal('{b64}')">
-    <img src="{b64}" alt="{title}" loading="lazy">
-    <div class="zoom-hint">🔍 Click to zoom</div>
+  <div class="img-wrap" onclick="openModal('{b64}')">
+    <img src="{b64}" alt="{ttl}" loading="lazy">
+    <div class="zoom-label">🔍 Click to zoom</div>
   </div>
 </div>"""
 
-        tab_contents += f"""
-<div id="{tab_id}" class="tab-content {active_div}">
-  {metrics_table}
-  <div class="plot-grid">{plot_cards}</div>
+        tab_divs += f"""
+<div id="{tid}" class="tab{' active' if i==0 else ''}">
+  {metrics_html if i==0 else ""}
+  <div class="plot-grid">{cards}</div>
 </div>"""
 
-    # ── Full HTML ────────────────────────────────
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Global Weather Trend Forecasting | PM Accelerator Assessment</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Global Weather Trend Forecasting | PM Accelerator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
-<style>
-:root {{
-  --bg:        #0b0f17;
-  --sidebar:   #0f172a;
-  --card:      rgba(30,41,59,0.45);
-  --border:    rgba(255,255,255,0.07);
-  --accent:    #38bdf8;
-  --accent2:   #818cf8;
-  --success:   #10b981;
-  --warn:      #f59e0b;
-  --danger:    #ef4444;
-  --text:      #f1f5f9;
-  --muted:     #94a3b8;
-  --glow:      rgba(56,189,248,0.12);
-}}
-*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{
-  background: var(--bg);
-  color: var(--text);
-  font-family: 'Inter', sans-serif;
-  display: flex;
-  min-height: 100vh;
-  overflow-x: hidden;
-}}
-
-/* ── Sidebar ─────────────────────────────── */
-aside {{
-  width: 270px;
-  min-height: 100vh;
-  background: var(--sidebar);
-  border-right: 1px solid var(--border);
-  padding: 2rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  position: fixed;
-  top: 0; left: 0; bottom: 0;
-  overflow-y: auto;
-  z-index: 20;
-}}
-.logo {{ margin-bottom: 2.5rem; }}
-.logo-title {{
-  font-family: 'Outfit', sans-serif;
-  font-weight: 800;
-  font-size: 1.4rem;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  letter-spacing: -0.5px;
-  line-height: 1.2;
-}}
-.logo-sub {{ font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }}
-.nav-list {{ list-style: none; display: flex; flex-direction: column; gap: 0.35rem; }}
-.nav-item {{
-  padding: 0.75rem 1rem;
-  border-radius: 10px;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 0.88rem;
-  font-weight: 500;
-  transition: all 0.2s;
-  user-select: none;
-}}
-.nav-item:hover {{ background: rgba(56,189,248,0.07); color: var(--text); }}
-.nav-item.active {{
-  background: rgba(56,189,248,0.12);
-  color: var(--accent);
-  border-left: 3px solid var(--accent);
-  font-weight: 600;
-}}
-
-/* ── Main ────────────────────────────────── */
-main {{
-  margin-left: 270px;
-  flex: 1;
-  padding: 2.5rem 2.75rem;
-  max-width: calc(100vw - 270px);
-}}
-header {{
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 2rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border);
-}}
-.header-title {{
-  font-family: 'Outfit', sans-serif;
-  font-weight: 800;
-  font-size: 2rem;
-  letter-spacing: -1px;
-  background: linear-gradient(to right, #f8fafc, #94a3b8);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}}
-.header-sub {{ color: var(--muted); margin-top: 0.3rem; font-size: 0.9rem; }}
-.timestamp {{
-  font-size: 0.8rem;
-  color: var(--muted);
-  background: rgba(30,41,59,0.6);
-  padding: 0.4rem 0.9rem;
-  border-radius: 20px;
-  border: 1px solid var(--border);
-  white-space: nowrap;
-}}
-
-/* ── KPI Cards ───────────────────────────── */
-.kpi-grid {{
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 1.25rem;
-  margin-bottom: 2rem;
-}}
-.kpi-card {{
-  background: var(--card);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 1.4rem 1.5rem;
-  transition: transform 0.25s, box-shadow 0.25s;
-}}
-.kpi-card:hover {{
-  transform: translateY(-3px);
-  box-shadow: 0 10px 30px -10px var(--glow);
-  border-color: rgba(56,189,248,0.25);
-}}
-.kpi-label {{ font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }}
-.kpi-value {{
-  font-family: 'Outfit', sans-serif;
-  font-size: 1.8rem;
-  font-weight: 700;
-  margin-top: 0.3rem;
-}}
-.kpi-value.blue   {{ color: var(--accent); }}
-.kpi-value.green  {{ color: var(--success); }}
-.kpi-value.yellow {{ color: var(--warn); }}
-.kpi-value.purple {{ color: var(--accent2); }}
-
-/* ── Mission Card ────────────────────────── */
-.mission-card {{
-  background: linear-gradient(135deg, rgba(56,189,248,0.07), rgba(129,140,248,0.07));
-  border: 1px solid rgba(56,189,248,0.2);
-  border-radius: 18px;
-  padding: 2rem 2.25rem;
-  margin-bottom: 2rem;
-  position: relative;
-  overflow: hidden;
-}}
-.mission-card::before {{
-  content: '';
-  position: absolute;
-  top: -40px; right: -40px;
-  width: 200px; height: 200px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(56,189,248,0.08), transparent 70%);
-  pointer-events: none;
-}}
-.mission-badge {{
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--accent);
-  background: rgba(56,189,248,0.1);
-  border: 1px solid rgba(56,189,248,0.25);
-  border-radius: 20px;
-  padding: 0.3rem 0.85rem;
-  margin-bottom: 1rem;
-}}
-.mission-heading {{
-  font-family: 'Outfit', sans-serif;
-  font-weight: 700;
-  font-size: 1.2rem;
-  margin-bottom: 0.75rem;
-  color: var(--text);
-}}
-.mission-text {{
-  color: #cbd5e1;
-  font-size: 0.93rem;
-  line-height: 1.7;
-}}
-
-/* ── Tab Content ─────────────────────────── */
-.tab-content {{ display: none; animation: fadeUp 0.35s ease both; }}
-.tab-content.active {{ display: block; }}
-@keyframes fadeUp {{
-  from {{ opacity: 0; transform: translateY(12px); }}
-  to   {{ opacity: 1; transform: translateY(0); }}
-}}
-
-/* ── Plot Grid ───────────────────────────── */
-.plot-grid {{
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
-  gap: 1.75rem;
-  margin-top: 1.5rem;
-}}
-.plot-card {{
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  transition: border-color 0.25s;
-}}
-.plot-card:hover {{ border-color: rgba(56,189,248,0.25); }}
-.plot-title {{
-  font-family: 'Outfit', sans-serif;
-  font-weight: 600;
-  font-size: 1.1rem;
-  border-left: 3px solid var(--accent);
-  padding-left: 0.75rem;
-}}
-.plot-desc {{ color: var(--muted); font-size: 0.85rem; line-height: 1.5; }}
-.img-box {{
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  cursor: zoom-in;
-  position: relative;
-  background: #0f172a;
-  transition: border-color 0.25s;
-}}
-.img-box:hover {{ border-color: var(--accent); }}
-.img-box img {{ width: 100%; display: block; transition: transform 0.3s; }}
-.img-box:hover img {{ transform: scale(1.015); }}
-.zoom-hint {{
-  position: absolute;
-  bottom: 8px; right: 10px;
-  font-size: 0.72rem;
-  color: var(--muted);
-  background: rgba(15,23,42,0.75);
-  padding: 0.2rem 0.5rem;
-  border-radius: 6px;
-  opacity: 0;
-  transition: opacity 0.2s;
-}}
-.img-box:hover .zoom-hint {{ opacity: 1; }}
-
-/* ── Metrics Table ───────────────────────── */
-.metrics-card {{
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 1.75rem;
-  margin-bottom: 1.75rem;
-  overflow-x: auto;
-}}
-.section-card {{
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 1.75rem;
-  margin-bottom: 1.5rem;
-}}
-.section-title {{
-  font-family: 'Outfit', sans-serif;
-  font-weight: 600;
-  font-size: 1.2rem;
-  border-left: 3px solid var(--accent);
-  padding-left: 0.75rem;
-}}
-.section-desc {{ color: var(--muted); font-size: 0.88rem; line-height: 1.6; margin-top: 0.5rem; }}
-.table-wrapper {{ overflow-x: auto; }}
-table {{ width: 100%; border-collapse: collapse; }}
-th {{
-  color: var(--muted);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 0.85rem 1rem;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-}}
-td {{
-  padding: 1rem;
-  border-bottom: 1px solid rgba(255,255,255,0.035);
-  font-size: 0.9rem;
-}}
-tr:hover td {{ background: rgba(255,255,255,0.018); }}
-.best-row {{ background: rgba(16,185,129,0.06); }}
-.best-badge {{
-  background: var(--success);
-  color: #0b0f17;
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0.15rem 0.45rem;
-  border-radius: 4px;
-  margin-left: 0.5rem;
-  vertical-align: middle;
-}}
-
-/* ── Map ─────────────────────────────────── */
-.map-wrapper {{
-  width: 100%;
-  height: 560px;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  margin-top: 1rem;
-}}
-.map-wrapper iframe {{ width: 100%; height: 100%; border: none; }}
-
-/* ── Lightbox Modal ──────────────────────── */
-.modal-overlay {{
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(11,15,23,0.94);
-  z-index: 999;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-}}
-.modal-overlay.open {{ display: flex; }}
-.modal-img {{
-  max-width: 90vw;
-  max-height: 88vh;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  box-shadow: 0 25px 60px -15px rgba(0,0,0,0.6);
-  animation: zoomIn 0.25s ease;
-}}
-@keyframes zoomIn {{
-  from {{ transform: scale(0.88); opacity: 0; }}
-  to   {{ transform: scale(1);    opacity: 1; }}
-}}
-.modal-close {{
-  position: absolute;
-  top: 1.25rem; right: 1.5rem;
-  font-size: 2.5rem;
-  color: var(--muted);
-  cursor: pointer;
-  line-height: 1;
-  transition: color 0.2s;
-}}
-.modal-close:hover {{ color: var(--text); }}
-</style>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>{CSS}</style>
 </head>
 <body>
-
-<!-- Sidebar -->
 <aside>
   <div class="logo">
     <div class="logo-title">🌦️ WeatherDS</div>
-    <div class="logo-sub">PM Accelerator Assessment</div>
+    <div class="logo-sub">PM Accelerator · Advanced Assessment</div>
   </div>
-  <ul class="nav-list">
-    {tab_buttons}
-  </ul>
+  <div class="nav-section">Navigation</div>
+  {nav_items}
 </aside>
 
-<!-- Main workspace -->
 <main>
-  <!-- Header -->
-  <header>
+  <div class="page-header">
     <div>
-      <div class="header-title">Global Weather Trend Forecasting</div>
-      <div class="header-sub">Advanced Climate Modelling · Anomaly Detection · Multi-Model Forecasting · Spatial Analysis</div>
+      <div class="page-title">Global Weather Trend Forecasting</div>
+      <div class="page-sub">Advanced Climate Modelling · Anomaly Detection · Multi-Model Forecasting · Spatial Analysis</div>
     </div>
-    <div class="timestamp">📅 Generated: {today}</div>
-  </header>
+    <div class="date-badge">📅 {today}</div>
+  </div>
 
-  <!-- KPI Cards -->
-  <section class="kpi-grid">
-    <div class="kpi-card">
-      <div class="kpi-label">Total Records Processed</div>
-      <div class="kpi-value blue">{total_records:,}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Global Cities Monitored</div>
-      <div class="kpi-value">{unique_cities:,}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Countries Represented</div>
-      <div class="kpi-value purple">{unique_countries}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Anomalies Detected</div>
-      <div class="kpi-value yellow">{anomaly_count:,} ({anomaly_pct}%)</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Best Forecast Model</div>
-      <div class="kpi-value green">{best_model}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Global Avg Temperature</div>
-      <div class="kpi-value blue">{avg_temp}°C</div>
-    </div>
-  </section>
+  <div class="kpi-grid">{kpis_html}</div>
 
-  <!-- PM Accelerator Mission -->
-  <section class="mission-card">
+  <div class="mission">
     <div class="mission-badge">🎯 PM Accelerator Mission</div>
-    <div class="mission-heading">Empowering the Next Generation of Product Leaders</div>
-    <p class="mission-text">{PM_ACCELERATOR_MISSION}</p>
-  </section>
+    <div class="mission-title">Empowering the Next Generation of Product Leaders</div>
+    <p class="mission-text">{PM_MISSION}</p>
+  </div>
 
-  <!-- Tab Contents -->
-  {tab_contents}
+  {tab_divs}
 </main>
 
-<!-- Lightbox Modal -->
-<div class="modal-overlay" id="lightbox" onclick="closeModal()">
-  <span class="modal-close" onclick="closeModal()">×</span>
-  <img class="modal-img" id="modalImg" src="" alt="Plot Zoom">
+<div class="overlay" id="ov" onclick="closeModal()">
+  <button class="close-btn" onclick="closeModal()">×</button>
+  <img id="mi" src="" alt="Zoom">
 </div>
-
-<script>
-  function switchTab(tabId, el) {{
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    const target = document.getElementById(tabId);
-    if (target) target.classList.add('active');
-    if (el) el.classList.add('active');
-  }}
-  function openModal(src) {{
-    document.getElementById('modalImg').src = src;
-    document.getElementById('lightbox').classList.add('open');
-  }}
-  function closeModal() {{
-    document.getElementById('lightbox').classList.remove('open');
-  }}
-  document.addEventListener('keydown', e => {{ if (e.key === 'Escape') closeModal(); }});
-</script>
+<script>{JS}</script>
 </body>
-</html>
-"""
-    out_file = reports_path / "weather_analysis_report.html"
-    out_file.write_text(html, encoding='utf-8')
-    print(f"  → Dashboard saved: {out_file}")
+</html>"""
+
+    out = rp / "weather_analysis_report.html"
+    out.write_text(html, encoding='utf-8')
+    print(f"  → Dashboard saved: {out}")
