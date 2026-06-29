@@ -1,13 +1,5 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "index.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "interactive_map.html",
-      "use": "@vercel/static"
-    }
-  ]
+  "buildCommand": "mkdir -p public && cp index.html interactive_map.html public",
+  "outputDirectory": "public"
 }
