@@ -1,0 +1,18 @@
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Data and Models
+data/GlobalWeatherRepository.csv
+outputs/models/*.pkl
+outputs/models/*.joblib
+
+# Jupyter Notebook Cache
+.ipynb_checkpoints/
+
+# IDE files
+.vscode/
+.idea/
